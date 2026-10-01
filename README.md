@@ -16,11 +16,18 @@ Every match and opportunity explains itself in plain language.
 
 ```bash
 cp .env.example .env
-docker compose up --build
+docker compose up -d --build
 # open http://localhost:3000
 ```
 
 The API container runs migrations, seeds the demo data if the database is empty, and starts on `:8000`. The worker and scheduler run alongside it.
+
+**Docker management commands:**
+- **Start in background:** `docker compose up -d`
+- **Stop application:** `docker compose down`
+- **Check status:** `docker compose ps`
+- **View live logs:** `docker compose logs -f`
+- **Full reset & re-seed:** `docker compose down -v && docker compose up -d --build`
 
 ### Without Docker
 

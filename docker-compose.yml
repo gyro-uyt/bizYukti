@@ -30,10 +30,14 @@ services:
     build: ./backend
     <<: *api-env
     command: python -m app.worker.worker
+    depends_on:
+      api: { condition: service_healthy }
   scheduler:
     build: ./backend
     <<: *api-env
     command: python -m app.worker.scheduler
+    depends_on:
+      api: { condition: service_healthy }
   web:
     build:
       context: ./frontend

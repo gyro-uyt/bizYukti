@@ -7,3 +7,4 @@ __pycache__/
 .pytest_cache/
 backend/media/
 backend/media_private/
+*.pdf
