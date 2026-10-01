@@ -1,0 +1,35 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      redis: { image: redis:7-alpine, ports: ["6379:6379"] }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start Postgres + PostGIS + pgvector
+        run: |
+          docker build -t bizyukti-db infra/db
+          docker run -d --name db -p 5432:5432 -e POSTGRES_USER=bizyukti -e POSTGRES_PASSWORD=bizyukti -e POSTGRES_DB=bizyukti_test bizyukti-db
+          for i in $(seq 1 30); do docker exec db pg_isready -U bizyukti && break; sleep 2; done
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: backend/requirements.txt }
+      - run: pip install -r backend/requirements.txt
+      - name: Migration drift check and tests
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql+psycopg://bizyukti:bizyukti@localhost:5432/bizyukti_test
+          REDIS_URL: redis://localhost:6379/0
+        run: |
+          alembic upgrade head && alembic check
+          python -m pytest -q -p no:logging
+  frontend:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: frontend } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - run: npm install
+      - run: npm run typecheck
+      - run: npm run build

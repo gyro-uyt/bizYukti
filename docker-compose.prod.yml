@@ -1,0 +1,63 @@
+# Production: docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+# Caddy terminates TLS for SITE_DOMAIN. Use S3-compatible storage (STORAGE_BACKEND=s3) for media in production.
+x-api: &api
+  build: ./backend
+  restart: unless-stopped
+  env_file: .env
+  volumes: [media:/data]
+  depends_on:
+    db: { condition: service_healthy }
+    redis: { condition: service_started }
+
+services:
+  db:
+    build: ./infra/db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-bizyukti}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-bizyukti}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bizyukti}"], interval: 5s, retries: 20 }
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: [redisdata:/data]
+  migrate:
+    <<: *api
+    restart: "no"
+    command: alembic upgrade head
+  api:
+    <<: *api
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${API_WORKERS:-4} --proxy-headers --forwarded-allow-ips "*"
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+  worker:
+    <<: *api
+    command: python -m app.worker.worker
+  scheduler:
+    <<: *api
+    command: python -m app.worker.scheduler
+  web:
+    build:
+      context: ./frontend
+      args:
+        API_ORIGIN: http://api:8000
+        NEXT_PUBLIC_SITE_URL: https://${SITE_DOMAIN}
+        NEXT_PUBLIC_DEMO_ACCOUNTS: "0"
+        NEXT_PUBLIC_MAP_TILE_URL: ${NEXT_PUBLIC_MAP_TILE_URL:-}
+        NEXT_PUBLIC_MAP_ATTRIBUTION: ${NEXT_PUBLIC_MAP_ATTRIBUTION:-}
+    restart: unless-stopped
+    environment: { API_ORIGIN: http://api:8000 }
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment: { SITE_DOMAIN: "${SITE_DOMAIN:?set SITE_DOMAIN}" }
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+    depends_on: [api, web]
+
+volumes: { pgdata: {}, redisdata: {}, media: {}, caddydata: {} }

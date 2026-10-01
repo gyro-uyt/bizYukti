@@ -1,0 +1,6 @@
+__pycache__
+*.pyc
+media
+media_private
+.pytest_cache
+.env

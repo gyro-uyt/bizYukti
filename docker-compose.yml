@@ -1,0 +1,51 @@
+# Local / demo stack: docker compose up --build  ->  http://localhost:3000
+x-api-env: &api-env
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql+psycopg://bizyukti:bizyukti@db:5432/bizyukti
+    REDIS_URL: redis://redis:6379/0
+    MEDIA_ROOT: /data/media
+  volumes:
+    - media:/data
+  depends_on:
+    db: { condition: service_healthy }
+    redis: { condition: service_started }
+
+services:
+  db:
+    build: ./infra/db
+    environment: { POSTGRES_USER: bizyukti, POSTGRES_PASSWORD: bizyukti, POSTGRES_DB: bizyukti }
+    volumes: [pgdata:/var/lib/postgresql/data]
+    ports: ["5432:5432"]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U bizyukti"], interval: 5s, retries: 20 }
+  redis:
+    image: redis:7-alpine
+  api:
+    build: ./backend
+    <<: *api-env
+    command: sh -c "alembic upgrade head && python -m app.seed --if-empty && uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers"
+    ports: ["8000:8000"]
+    healthcheck: { test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"], interval: 10s, retries: 30 }
+  worker:
+    build: ./backend
+    <<: *api-env
+    command: python -m app.worker.worker
+  scheduler:
+    build: ./backend
+    <<: *api-env
+    command: python -m app.worker.scheduler
+  web:
+    build:
+      context: ./frontend
+      args:
+        API_ORIGIN: http://api:8000
+        NEXT_PUBLIC_SITE_URL: http://localhost:3000
+        NEXT_PUBLIC_DEMO_ACCOUNTS: "1"
+    environment: { API_ORIGIN: http://api:8000 }
+    ports: ["3000:3000"]
+    depends_on:
+      api: { condition: service_healthy }
+
+volumes:
+  pgdata:
+  media:
